@@ -5,9 +5,11 @@
 #include <linux/slab.h>
 
 struct lgmagic_drvdata {
-	struct input_dev *input;
-    u16 last_keycode;
-    u16 last_btncode;
+	struct input_dev *input_hid;
+	struct input_dev *input_imu;
+
+	u16 last_keycode;
+	u16 last_btncode;
 };
 
 static const struct {
@@ -52,52 +54,77 @@ static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 				u8 *data, int size)
 {
 	struct lgmagic_drvdata *drvdata = hid_get_drvdata(hdev);
-    u8 reporting = 0;
-    
-	if (!drvdata || !drvdata->input)
-    {
-        dev_warn(&hdev->dev, "No drvdata or no input dev");
-        return 0;
-    }
-        
-    if (size != 20 || data[0] != 0xFD)
-    {
-        dev_warn(&hdev->dev, "Unknown descriptor with size %d and type %x", size, data[0]);
+	u8 reporting = 0;
+	u16 counter;
+	s16 imu[6];
+	int i;
+
+	if (!drvdata || !drvdata->input_hid || !drvdata->input_imu)
+	{
+		dev_warn(&hdev->dev, "No drvdata or no input dev");
+		return 0;
+	}
+
+	if (size != 20 || data[0] != 0xFD)
+	{
+		dev_warn(&hdev->dev, "Unknown descriptor with size %d and type %x", size, data[0]);
 		return 0; // Not ours
-    }
+	}
 
 	// Button is last two bytes before wheel
 	u16 btn_code = (data[17] << 8) | data[18];
 	s8 wheel = (s8)data[19];
 
-    if (btn_code != drvdata->last_btncode)
-    {
-        input_report_key(drvdata->input, drvdata->last_keycode, 0);
-        reporting = 1;
-        drvdata->last_keycode = 0;
-        drvdata->last_btncode = btn_code;
-        if (btn_code != 0)
-        {
-            for (int i = 0; i < ARRAY_SIZE(lg_btn_map); i++) {
-                if (lg_btn_map[i].code == btn_code) {
-                    input_report_key(drvdata->input, lg_btn_map[i].keycode, 1);
-                    drvdata->last_keycode = lg_btn_map[i].keycode;
-                    break;
-                }
-            }
-        }
-    }
+	if (btn_code != drvdata->last_btncode)
+	{
+		input_report_key(drvdata->input_hid, drvdata->last_keycode, 0);
+		reporting = 1;
+		drvdata->last_keycode = 0;
+		drvdata->last_btncode = btn_code;
+		if (btn_code != 0)
+		{
+			for (int i = 0; i < ARRAY_SIZE(lg_btn_map); i++) {
+				if (lg_btn_map[i].code == btn_code) {
+					input_report_key(drvdata->input_hid, lg_btn_map[i].keycode, 1);
+					drvdata->last_keycode = lg_btn_map[i].keycode;
+					break;
+				}
+			}
+		}
+	}
 
 	if (wheel != 0)
-    {
-		input_report_rel(drvdata->input, REL_WHEEL, wheel);
-        reporting = 1;
-    }
+	{
+		input_report_rel(drvdata->input_hid, REL_WHEEL, wheel);
+		reporting = 1;
+	}
 
-    if (reporting)
-    {
-        input_sync(drvdata->input);
-    }
+	if (reporting)
+	{
+		input_sync(drvdata->input_hid);
+	}
+
+
+	/* Parse counter (little-endian) */
+	counter = data[1] | (data[2] << 8);
+
+	/* Parse 6 signed 16-bit values, big-endian */
+	for (i = 0; i < 6; i++) {
+		imu[i] = (data[5 + 2*i] << 8) | data[6 + 2*i];
+	}
+
+	/* Report counter */
+	input_event(drvdata->input_imu, EV_MSC, MSC_SERIAL, counter);
+
+	/* Report IMU axes */
+	input_report_abs(drvdata->input_imu, ABS_X,  imu[3]);
+	input_report_abs(drvdata->input_imu, ABS_Y,  imu[4]);
+	input_report_abs(drvdata->input_imu, ABS_Z,  imu[5]);
+	input_report_abs(drvdata->input_imu, ABS_RX, imu[0]);
+	input_report_abs(drvdata->input_imu, ABS_RY, imu[1]);
+	input_report_abs(drvdata->input_imu, ABS_RZ, imu[2]);
+
+	input_sync(drvdata->input_imu);
 
 	return 0;
 }
@@ -106,8 +133,6 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 {
 	int ret, i;
 	struct lgmagic_drvdata *drvdata;
-    struct input_dev *input;
-
 
 	drvdata = devm_kzalloc(&hdev->dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
@@ -123,24 +148,47 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 	if (ret)
 		return ret;
 
-	input = devm_input_allocate_device(&hdev->dev);
-	if (!input)
+	drvdata->input_hid = devm_input_allocate_device(&hdev->dev);
+	if (!drvdata->input_hid)
 		return -ENOMEM;
 
-	drvdata->input = input;
-	input->name = "LG Magic Remote";
-	input->id.bustype = hdev->bus;
-	input->id.vendor = hdev->vendor;
-	input->id.product = hdev->product;
+	drvdata->input_hid->name = "LG Magic Remote";
+	drvdata->input_hid->id.bustype = hdev->bus;
+	drvdata->input_hid->id.vendor = hdev->vendor;
+	drvdata->input_hid->id.product = hdev->product;
 
-	set_bit(EV_KEY, input->evbit);
-	set_bit(EV_REL, input->evbit);
-	set_bit(REL_WHEEL, input->relbit);
+	set_bit(EV_KEY, drvdata->input_hid->evbit);
+	set_bit(EV_REL, drvdata->input_hid->evbit);
+	set_bit(REL_WHEEL, drvdata->input_hid->relbit);
 
 	for (i = 0; i < ARRAY_SIZE(lg_btn_map); i++)
-		set_bit(lg_btn_map[i].keycode, input->keybit);
+		set_bit(lg_btn_map[i].keycode, drvdata->input_hid->keybit);
 
-	ret = input_register_device(input);
+	ret = input_register_device(drvdata->input_hid);
+	if (ret)
+		return ret;
+
+	drvdata->input_imu = devm_input_allocate_device(&hdev->dev);
+	if (!drvdata->input_imu)
+		return -ENOMEM;
+
+	drvdata->input_imu->name = "LG Magic Remote IMU";
+	drvdata->input_imu->id.bustype = hdev->bus;
+	drvdata->input_imu->id.vendor = hdev->vendor;
+	drvdata->input_imu->id.product = hdev->product;
+
+	set_bit(EV_ABS, drvdata->input_imu->evbit);
+	set_bit(EV_MSC, drvdata->input_imu->evbit);
+
+	set_bit(MSC_SERIAL, drvdata->input_imu->mscbit);
+
+	for (i = ABS_X; i <= ABS_RZ; i++)
+	{
+		set_bit(i, drvdata->input_imu->absbit);
+		input_set_abs_params(drvdata->input_imu, i,  -32768, 32767, 4, 4);
+	}
+
+	ret = input_register_device(drvdata->input_imu);
 	if (ret)
 		return ret;
 

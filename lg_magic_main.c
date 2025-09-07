@@ -2,8 +2,9 @@
 #include <linux/module.h>
 #include <linux/hid.h>
 #include <linux/input.h>
-#include <linux/slab.h>
-#include <linux/fpu.h>
+#include <linux/firmware.h>
+
+#include "lg_magic_airmouse.h"
 
 struct lgmagic_drvdata {
 	struct input_dev *input_hid;
@@ -12,9 +13,10 @@ struct lgmagic_drvdata {
 	u16 last_keycode;
 	u16 last_btncode;
 	float gyro_acc[3];
-	float alpha;
-	float mouse_k;
+	struct lg_magic_airmouse_calib calib;
 };
+
+void lgmagic_calc_mouse(struct lg_magic_airmouse_calib *calib, float *gyro_acc, s16 *gyro, s16 *mouse);
 
 static const struct {
 	u16 code;
@@ -25,7 +27,8 @@ static const struct {
 	{ 0x8010, KEY_0 }, { 0x8011, KEY_1 }, { 0x8012, KEY_2 },
 	{ 0x8013, KEY_3 }, { 0x8014, KEY_4 }, { 0x8015, KEY_5 },
 	{ 0x8016, KEY_6 }, { 0x8017, KEY_7 }, { 0x8018, KEY_8 }, { 0x8019, KEY_9 },
-	{ 0x8044, BTN_MIDDLE },
+	//{ 0x8044, BTN_MIDDLE },
+	{ 0x8044, BTN_LEFT },
 	{ 0x8053, KEY_LIST },
 	{ 0x8045, KEY_MENU }, // ... button
 	{ 0x8002, KEY_VOLUMEUP },
@@ -53,23 +56,6 @@ static const struct {
 	{ 0x8006, KEY_RIGHT },
 	{ 0x8007, KEY_LEFT },
 };
-
-static void lgmagic_lpf(float *acc, float alpha, float value)
-{
-	*acc = alpha * value + (1.0 - alpha) * (*acc);
-}
-
-static void lgmagic_calc_mouse(struct lgmagic_drvdata *drvdata, s16 *gyro, s16 *mouse)
-{
-	kernel_fpu_begin();
-	for (size_t i = 0; i < 2; i++)
-	{
-		lgmagic_lpf(&drvdata->gyro_acc[i], drvdata->alpha, (float)gyro[i]);
-	}
-	mouse[0] = drvdata->gyro_acc[2] * drvdata->mouse_k;
-	mouse[1] = drvdata-> gyro_acc[1] * drvdata->mouse_k;
-	kernel_fpu_end();
-}
 
 static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 				u8 *data, int size)
@@ -130,7 +116,10 @@ static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 		reporting = 1;
 	}
 
-	//lgmagic_calc_mouse(drvdata, imu, mouse);
+	lgmagic_calc_mouse(&drvdata->calib, drvdata->gyro_acc, imu, mouse);
+	input_report_rel(drvdata->input_hid, REL_X, mouse[0]);
+	input_report_rel(drvdata->input_hid, REL_Y, mouse[1]);
+
 	if (mouse[0] || mouse[1])
 		reporting = 1;
 
@@ -159,6 +148,7 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 {
 	int ret, i;
 	struct lgmagic_drvdata *drvdata;
+	const struct firmware *fw;
 
 	drvdata = devm_kzalloc(&hdev->dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
@@ -178,8 +168,12 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 	if (!drvdata->input_hid)
 		return -ENOMEM;
 
-	drvdata->alpha = 0.2;
-	drvdata->mouse_k = -30.0;
+	ret = request_firmware(&fw, "lg_magic_calib.bin", &hdev->dev);
+	if (ret == 0 && fw->size>=sizeof(struct lg_magic_airmouse_calib)) {
+		printk("Loading LG Magic calibration. Got %ld", fw->size);
+		memcpy(&drvdata->calib, fw->data, sizeof(struct lg_magic_airmouse_calib));
+		release_firmware(fw);
+	}
 
 	drvdata->input_hid->name = "LG Magic Remote";
 	drvdata->input_hid->id.bustype = hdev->bus;

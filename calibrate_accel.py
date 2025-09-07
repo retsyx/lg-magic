@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 import csv
 from scipy.optimize import least_squares
@@ -15,7 +16,7 @@ def load_accel_csv(filename):
             if len(row) < 3:
                 continue
             try:
-                a = [float(row[0]), float(row[1]), float(row[2])]
+                a = [float(row[2]), float(row[3]), float(row[4])]
                 data.append(a)
             except ValueError:
                 continue  # skip invalid lines

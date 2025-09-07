@@ -3,6 +3,7 @@
 #include <linux/hid.h>
 #include <linux/input.h>
 #include <linux/slab.h>
+#include <linux/fpu.h>
 
 struct lgmagic_drvdata {
 	struct input_dev *input_hid;
@@ -10,6 +11,9 @@ struct lgmagic_drvdata {
 
 	u16 last_keycode;
 	u16 last_btncode;
+	float gyro_acc[3];
+	float alpha;
+	float mouse_k;
 };
 
 static const struct {
@@ -50,6 +54,23 @@ static const struct {
 	{ 0x8007, KEY_LEFT },
 };
 
+static void lgmagic_lpf(float *acc, float alpha, float value)
+{
+	*acc = alpha * value + (1.0 - alpha) * (*acc);
+}
+
+static void lgmagic_calc_mouse(struct lgmagic_drvdata *drvdata, s16 *gyro, s16 *mouse)
+{
+	kernel_fpu_begin();
+	for (size_t i = 0; i < 2; i++)
+	{
+		lgmagic_lpf(&drvdata->gyro_acc[i], drvdata->alpha, (float)gyro[i]);
+	}
+	mouse[0] = drvdata->gyro_acc[2] * drvdata->mouse_k;
+	mouse[1] = drvdata-> gyro_acc[1] * drvdata->mouse_k;
+	kernel_fpu_end();
+}
+
 static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 				u8 *data, int size)
 {
@@ -57,6 +78,8 @@ static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 	u8 reporting = 0;
 	u16 counter;
 	s16 imu[6];
+	s16 mouse[2] = {0};
+
 	int i;
 
 	if (!drvdata || !drvdata->input_hid || !drvdata->input_imu)
@@ -74,6 +97,14 @@ static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 	// Button is last two bytes before wheel
 	u16 btn_code = (data[17] << 8) | data[18];
 	s8 wheel = (s8)data[19];
+
+	/* Parse counter (little-endian) */
+	counter = data[1] | (data[2] << 8);
+
+	/* Parse 6 signed 16-bit values, big-endian */
+	for (i = 0; i < 6; i++) {
+		imu[i] = (data[5 + 2*i] << 8) | data[6 + 2*i];
+	}
 
 	if (btn_code != drvdata->last_btncode)
 	{
@@ -99,18 +130,13 @@ static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 		reporting = 1;
 	}
 
+	//lgmagic_calc_mouse(drvdata, imu, mouse);
+	if (mouse[0] || mouse[1])
+		reporting = 1;
+
 	if (reporting)
 	{
 		input_sync(drvdata->input_hid);
-	}
-
-
-	/* Parse counter (little-endian) */
-	counter = data[1] | (data[2] << 8);
-
-	/* Parse 6 signed 16-bit values, big-endian */
-	for (i = 0; i < 6; i++) {
-		imu[i] = (data[5 + 2*i] << 8) | data[6 + 2*i];
 	}
 
 	/* Report counter */
@@ -152,6 +178,9 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 	if (!drvdata->input_hid)
 		return -ENOMEM;
 
+	drvdata->alpha = 0.2;
+	drvdata->mouse_k = -30.0;
+
 	drvdata->input_hid->name = "LG Magic Remote";
 	drvdata->input_hid->id.bustype = hdev->bus;
 	drvdata->input_hid->id.vendor = hdev->vendor;
@@ -160,6 +189,8 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 	set_bit(EV_KEY, drvdata->input_hid->evbit);
 	set_bit(EV_REL, drvdata->input_hid->evbit);
 	set_bit(REL_WHEEL, drvdata->input_hid->relbit);
+	set_bit(REL_X, drvdata->input_hid->relbit);
+	set_bit(REL_Y, drvdata->input_hid->relbit);
 
 	for (i = 0; i < ARRAY_SIZE(lg_btn_map); i++)
 		set_bit(lg_btn_map[i].keycode, drvdata->input_hid->keybit);

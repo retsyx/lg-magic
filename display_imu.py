@@ -11,6 +11,7 @@ import threading
 
 import draw_cube
 import uinput_mouse
+from lpf import GyroLPF
 
 from ahrs.filters import Madgwick
 from ahrs.common.orientation import q2euler
@@ -93,6 +94,7 @@ def read_events(args):
     last_counter = None
 
     madgwick = Madgwick(sampleperiod=T_UNIT, beta=0.1)
+    gyro_filter = GyroLPF()
     q = None
 
     print("Press Ctrl+C to stop...")
@@ -130,12 +132,20 @@ def read_events(args):
 
                     q = madgwick.updateIMU(q, gyr=g_corr, acc=a_corr)
                     draw_cube.update(q)
+
+
+                    gyro_filt = gyro_filter.filter(g_corr)
+                    print(f"dt={dt if dt else 0:.5f}s | gyro_filt ={gyro_filt}")
+                    uinput_mouse.imu_to_mouse_from_rads(-gyro_filt[2], -gyro_filt[1], s_x=30.0, s_y=30.0)
+
+
+
                     rads = q2euler(q)
                     euler = np.degrees(rads)
                     if args.mouse:
                         uinput_mouse.imu_to_mouse_from_euler(rads, 0.01)
                     print(f"Roll={euler[0]:+.2f}  Pitch={euler[1]:+.2f}  Yaw={euler[2]:+.2f}")
-                    #continue
+                    continue
                 print(f"dt={dt if dt else 0:.5f}s | Accel={a_corr} | Gyro={g_corr}")
                 continue
 

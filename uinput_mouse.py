@@ -11,6 +11,20 @@ device = uinput.Device([
     uinput.BTN_RIGHT
 ])
 
+
+def imu_to_mouse_from_rads(d_y, d_p, s_x=50.0, s_y=50.0):
+    # Convert to relative pixels
+    rel_x = int(d_y * s_x)
+    rel_y = int(d_p * s_y)
+
+    print(f"REL_X : {rel_x} REL_Y: {rel_y}")
+    #return
+
+    # Send to uinput
+    device.emit(uinput.REL_X, rel_x, syn=False)
+    device.emit(uinput.REL_Y, rel_y, syn=True)
+
+
 prev_pitch, prev_yaw = None, None
 
 # 20deg/s - 10 pix, threshold 5deg/s, 2pix
@@ -36,14 +50,4 @@ def imu_to_mouse_from_euler(euler, dt, s_x=50.0, s_y=50.0):
 
     delta_yaw /= dt
     delta_pitch /= dt
-
-    # Convert to relative pixels
-    rel_x = int(delta_yaw * s_x)
-    rel_y = int(delta_pitch * s_y)
-
-    print(f"REL_X : {rel_x} REL_Y: {rel_y}")
-    #return
-
-    # Send to uinput
-    device.emit(uinput.REL_X, rel_x, syn=False)
-    device.emit(uinput.REL_Y, rel_y, syn=True)
+    imu_to_mouse_from_rads(delta_yaw, delta_pitch, s_x, s_y)

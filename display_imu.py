@@ -6,7 +6,11 @@ import json
 import csv
 import argparse
 import math
+import threading
 
+
+import draw_cube
+import uinput_mouse
 
 from ahrs.filters import Madgwick
 from ahrs.common.orientation import q2euler
@@ -14,6 +18,12 @@ from ahrs.common.orientation import q2euler
 MODULO = 2**16
 COUNTS_PER_0p02 = 256
 T_UNIT = 0.02
+
+R_align = np.array([
+    [ 0,  -1,  0],   # new X = old Y
+    [ -1,  0,  0],   # new Y = old X
+    [ 0,  0, -1]    # new Z = - old Z
+])
 
 def find_imu_device():
     for path in evdev.list_devices():
@@ -56,14 +66,8 @@ def accel_to_quat(a):
         cr*cp*sy - sr*sp*cy
     ])
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--calib", help="calibration JSON file")
-    parser.add_argument("--csv", help="output CSV file for raw samples")
-    parser.add_argument("--ahrs", help="Display Euler angles", action='store_true')
 
-    args = parser.parse_args()
-
+def read_events(args):
     dev = find_imu_device()
 
     accel = [
@@ -117,6 +121,8 @@ def main():
 
             if calib:
                 a_corr, g_corr = apply_calibration(accel, gyro, calib)
+                a_corr = R_align @ a_corr
+                g_corr  = R_align @ g_corr
                 if args.ahrs and dt:
                     g_corr *= (math.pi/180)
                     #madgwick.Dt = dt
@@ -125,14 +131,35 @@ def main():
                         q = accel_to_quat(a_corr)
 
                     q = madgwick.updateIMU(q, gyr=g_corr, acc=a_corr)
-                    euler = np.degrees(q2euler(q))
-                    roll, pitch, yaw = euler
-                    print(f"Roll={roll:+.2f}  Pitch={pitch:+.2f}  Yaw={yaw:+.2f}")
+                    draw_cube.update(q)
+                    rads = q2euler(q)
+                    euler = np.degrees(rads)
+                    uinput_mouse.imu_to_mouse_from_euler(rads, 0.01)
+                    print(f"Roll={euler[0]:+.2f}  Pitch={euler[1]:+.2f}  Yaw={euler[2]:+.2f}")
                     continue
                 print(f"dt={dt if dt else 0:.5f}s | Accel={a_corr} | Gyro={g_corr}")
                 continue
 
             print(f"dt={dt if dt else 0:.5f}s | Accel={accel} | Gyro={gyro}")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--calib", help="calibration JSON file")
+    parser.add_argument("--csv", help="output CSV file for raw samples")
+
+    parser.add_argument("--ahrs", help="Display Euler angles", action='store_true')
+    parser.add_argument("--cube", help="Display spinning cube", action='store_true')
+
+    args = parser.parse_args()
+
+    if args.cube:
+        t = threading.Thread(target=read_events, kwargs={'args':args}, daemon=True)
+        t.start()
+
+        draw_cube.start()
+    else:
+        read_events(args)
+
 
 if __name__ == "__main__":
     main()

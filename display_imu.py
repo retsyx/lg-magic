@@ -89,8 +89,6 @@ def read_events(args):
         writer = csv.writer(csvfile)
         writer.writerow(["counter", "dt", "ax", "ay", "az", "gx", "gy", "gz"])
 
-    accel = [0,0,0]
-    gyro = [0,0,0]
     counter = 0
     last_counter = None
 
@@ -134,9 +132,10 @@ def read_events(args):
                     draw_cube.update(q)
                     rads = q2euler(q)
                     euler = np.degrees(rads)
-                    uinput_mouse.imu_to_mouse_from_euler(rads, 0.01)
+                    if args.mouse:
+                        uinput_mouse.imu_to_mouse_from_euler(rads, 0.01)
                     print(f"Roll={euler[0]:+.2f}  Pitch={euler[1]:+.2f}  Yaw={euler[2]:+.2f}")
-                    continue
+                    #continue
                 print(f"dt={dt if dt else 0:.5f}s | Accel={a_corr} | Gyro={g_corr}")
                 continue
 
@@ -149,6 +148,7 @@ def main():
 
     parser.add_argument("--ahrs", help="Display Euler angles", action='store_true')
     parser.add_argument("--cube", help="Display spinning cube", action='store_true')
+    parser.add_argument("--mouse", help="AirMouse via uinput", action='store_true')
 
     args = parser.parse_args()
 

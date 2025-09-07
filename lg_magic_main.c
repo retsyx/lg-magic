@@ -16,8 +16,6 @@ struct lgmagic_drvdata {
 	struct lg_magic_airmouse_calib calib;
 };
 
-void lgmagic_calc_mouse(struct lg_magic_airmouse_calib *calib, float *gyro_acc, s16 *gyro, s16 *mouse);
-
 static const struct {
 	u16 code;
 	u16 keycode;
@@ -173,6 +171,11 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 		printk("Loading LG Magic calibration. Got %ld", fw->size);
 		memcpy(&drvdata->calib, fw->data, sizeof(struct lg_magic_airmouse_calib));
 		release_firmware(fw);
+		if (lgmagic_validate_calib(&drvdata->calib))
+		{
+			printk("Calibration table isn't valid. Airmouse disabled");
+			memset(&drvdata->calib, 0, sizeof(struct lg_magic_airmouse_calib));
+		}
 	}
 
 	drvdata->input_hid->name = "LG Magic Remote";

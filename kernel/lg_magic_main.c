@@ -142,11 +142,41 @@ static int lgmagic_raw_event(struct hid_device *hdev, struct hid_report *report,
 	return 0;
 }
 
+static void lgmagic_sanitize_mac(const char *uniq, char *out)
+{
+	size_t i = 0;
+	for (i = 0; uniq[i] && i<17; i++) {
+		if (uniq[i] == ':')
+			out[i] = '_';  /* or just skip it */
+			else
+				out[i] = uniq[i];
+	}
+}
+
+static int lgmagic_load_fw(const char *fwname, struct device *dev, struct lgmagic_drvdata *drvdata)
+{
+	int ret;
+	const struct firmware *fw;
+
+	ret = request_firmware(&fw, fwname, dev);
+	if (ret == 0 && fw->size>=sizeof(struct lg_magic_airmouse_calib)) {
+		printk("Loading LG Magic calibration");
+		memcpy(&drvdata->calib, fw->data, sizeof(struct lg_magic_airmouse_calib));
+		release_firmware(fw);
+		if (lgmagic_validate_calib(&drvdata->calib))
+		{
+			printk("Calibration table isn't valid. Airmouse disabled");
+			memset(&drvdata->calib, 0, sizeof(struct lg_magic_airmouse_calib));
+			return 0;
+		}
+	}
+	return ret;
+}
+
 static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id)
 {
 	int ret, i;
 	struct lgmagic_drvdata *drvdata;
-	const struct firmware *fw;
 
 	drvdata = devm_kzalloc(&hdev->dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
@@ -162,21 +192,19 @@ static int lgmagic_probe(struct hid_device *hdev, const struct hid_device_id *id
 	if (ret)
 		return ret;
 
+	if (strlen(hdev->uniq)==17)
+	{
+		char addr_fw_name[] = "lg_magic_calib_XX_XX_XX_XX_XX_XX.bin";
+		lgmagic_sanitize_mac(hdev->uniq, addr_fw_name+sizeof("lg_magic_calib_")-1);
+		if (lgmagic_load_fw(addr_fw_name, &hdev->dev, drvdata)==0)
+			goto loaded;
+	}
+		lgmagic_load_fw("lg_magic_calib.bin", &hdev->dev, drvdata);
+loaded:
+
 	drvdata->input_hid = devm_input_allocate_device(&hdev->dev);
 	if (!drvdata->input_hid)
 		return -ENOMEM;
-
-	ret = request_firmware(&fw, "lg_magic_calib.bin", &hdev->dev);
-	if (ret == 0 && fw->size>=sizeof(struct lg_magic_airmouse_calib)) {
-		printk("Loading LG Magic calibration. Got %ld", fw->size);
-		memcpy(&drvdata->calib, fw->data, sizeof(struct lg_magic_airmouse_calib));
-		release_firmware(fw);
-		if (lgmagic_validate_calib(&drvdata->calib))
-		{
-			printk("Calibration table isn't valid. Airmouse disabled");
-			memset(&drvdata->calib, 0, sizeof(struct lg_magic_airmouse_calib));
-		}
-	}
 
 	drvdata->input_hid->name = "LG Magic Remote";
 	drvdata->input_hid->id.bustype = hdev->bus;

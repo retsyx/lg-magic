@@ -55,7 +55,4 @@ def update(quat):
     mesh.rotate(angle, axis[0], axis[1], axis[2])
 
 def start():
-    #timer = pg.QtCore.QTimer()
-    #timer.timeout.connect(lambda: update_mesh())  # identity quat for now
-    #timer.start(50)
     app.exec()

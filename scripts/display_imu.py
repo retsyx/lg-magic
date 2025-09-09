@@ -11,7 +11,6 @@ import threading
 
 import draw_cube
 import uinput_mouse
-from lpf import GyroLPF
 
 from ahrs.filters import Madgwick
 from ahrs.common.orientation import q2euler
@@ -19,6 +18,19 @@ from ahrs.common.orientation import q2euler
 MODULO = 2**16
 COUNTS_PER_0p02 = 256
 T_UNIT = 0.02
+
+class LPF:
+    def __init__(self, alpha=0.2):
+        self.alpha = alpha
+        self.prev = np.zeros(3)  # [gx, gy, gz]
+
+    def filter(self, gyro):
+        """
+        Apply low-pass filter to gyro vector.
+        gyro: np.array([gx, gy, gz]) in rad/s
+        """
+        self.prev = self.alpha * gyro + (1 - self.alpha) * self.prev
+        return self.prev
 
 R_align = np.array([
     [ 0,  -1,  0],   # new X = old Y
@@ -94,7 +106,7 @@ def read_events(args):
     last_counter = None
 
     madgwick = Madgwick(sampleperiod=T_UNIT, beta=0.1)
-    gyro_filter = GyroLPF()
+    gyro_filter = LPF()
     q = None
 
     print("Press Ctrl+C to stop...")

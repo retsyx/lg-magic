@@ -135,8 +135,13 @@ def read_events(args):
                 a_corr, g_corr = apply_calibration(accel, gyro, calib)
                 a_corr = R_align @ a_corr
                 g_corr  = R_align @ g_corr
+                g_corr *= (math.pi/180)
+                if args.mouse:
+                    gyro_filt = gyro_filter.filter(g_corr)
+                    print(f"dt={dt if dt else 0:.5f}s | gyro_filt ={gyro_filt}")
+                    uinput_mouse.imu_to_mouse_from_rads(-gyro_filt[2], -gyro_filt[1], s_x=30.0, s_y=30.0)
+
                 if args.ahrs and dt:
-                    g_corr *= (math.pi/180)
                     #madgwick.Dt = dt
 
                     if q is None:
@@ -144,18 +149,8 @@ def read_events(args):
 
                     q = madgwick.updateIMU(q, gyr=g_corr, acc=a_corr)
                     draw_cube.update(q)
-
-
-                    gyro_filt = gyro_filter.filter(g_corr)
-                    print(f"dt={dt if dt else 0:.5f}s | gyro_filt ={gyro_filt}")
-                    uinput_mouse.imu_to_mouse_from_rads(-gyro_filt[2], -gyro_filt[1], s_x=30.0, s_y=30.0)
-
-
-
                     rads = q2euler(q)
                     euler = np.degrees(rads)
-                    if args.mouse:
-                        uinput_mouse.imu_to_mouse_from_euler(rads, 0.01)
                     print(f"Roll={euler[0]:+.2f}  Pitch={euler[1]:+.2f}  Yaw={euler[2]:+.2f}")
                     continue
                 print(f"dt={dt if dt else 0:.5f}s | Accel={a_corr} | Gyro={g_corr}")

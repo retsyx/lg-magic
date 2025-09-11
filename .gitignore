@@ -1,7 +1,7 @@
 # Kernel module
 *.cmd
 *.ko
-*.mod.c
+*.mod*
 *.o
 Module.symvers
 modules.order

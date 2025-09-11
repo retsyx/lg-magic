@@ -9,7 +9,7 @@ struct lg_magic_airmouse_calib
 	float mouse_k;
 };
 
-void lgmagic_calc_mouse(struct lg_magic_airmouse_calib *calib, float *gyro_acc, s16 *gyro, s16 *mouse);
+int lgmagic_calc_mouse(struct lg_magic_airmouse_calib *calib, float *gyro_acc, u16 threshold, s16 *gyro, s16 *mouse);
 int lgmagic_validate_calib(struct lg_magic_airmouse_calib *calib);
 
 #endif

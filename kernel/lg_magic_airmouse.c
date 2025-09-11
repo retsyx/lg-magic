@@ -30,7 +30,7 @@ static inline void lgmagic_lpf(float *acc, float alpha, float value)
 	*acc = alpha * value + (1.0 - alpha) * (*acc);
 }
 
-void lgmagic_calc_mouse(struct lg_magic_airmouse_calib *calib, float *gyro_acc, s16 *gyro, s16 *mouse)
+int lgmagic_calc_mouse(struct lg_magic_airmouse_calib *calib, float *gyro_acc, u16 threshold, s16 *gyro, s16 *mouse)
 {
 	for (size_t i = 0; i < 3; i++)
 	{
@@ -40,4 +40,8 @@ void lgmagic_calc_mouse(struct lg_magic_airmouse_calib *calib, float *gyro_acc, 
 
 	mouse[0] = gyro_acc[2] * calib->mouse_k;
 	mouse[1] = gyro_acc[0] * calib->mouse_k;
+
+	if (lgmagic_fabs(gyro_acc[0])>threshold || lgmagic_fabs(gyro_acc[2])>threshold)
+		return 1;
+	return 0;
 }

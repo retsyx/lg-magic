@@ -283,6 +283,7 @@ loaded:
 	drvdata->input_hid->id.product = hdev->product;
 
 	set_bit(EV_KEY, drvdata->input_hid->evbit);
+	set_bit(EV_REP, drvdata->input_hid->evbit);
 	set_bit(EV_REL, drvdata->input_hid->evbit);
 	set_bit(REL_WHEEL, drvdata->input_hid->relbit);
 	set_bit(REL_X, drvdata->input_hid->relbit);

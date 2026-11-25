@@ -1040,6 +1040,7 @@ static void lgmagic_remove(struct hid_device *hdev)
 
 static const struct hid_device_id lgmagic_devices[] = {
 	{ HID_BLUETOOTH_DEVICE(0x000f, 0x3412) }, // LG Magic Remote MR19/MR20
+	{ HID_BLUETOOTH_DEVICE(0x005d, 0x8762) }, // LG Magic Remote MR26GA
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, lgmagic_devices);
